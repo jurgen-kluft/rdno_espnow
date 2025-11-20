@@ -1,6 +1,7 @@
-#include "rdno_core/c_str.h"
 
 #if defined(TARGET_ARDUINO) && defined(TARGET_ESP32)
+
+#include "rdno_core/c_debug.h"
 
 #    include "Arduino.h"
 
@@ -12,19 +13,15 @@
 #    include <freertos/queue.h>
 #    include <freertos/task.h>
 
+#    include "rdno_espnow/private/c_peer_list.h"
+
 // ----------------------------------------------------------------------------------------
 // ----------------------------------------------------------------------------------------
 
-constexpr auto QESPNOW_TAG = "QESPNOW";
+DEBUG_TAG(QESPNOW_TAG, "QESPNOW");
 
-#    define DEBUG_ERROR(...)
-#    define DEBUG_INFO(...)
-#    define DEBUG_VERBOSE(...)
-#    define DEBUG_WARN(...)
-#    define DEBUG_DBG(...)
-
-typedef std::function<void(uint8_t* address, uint8_t* data, uint8_t len, signed int rssi, bool broadcast)> comms_hal_rcvd_data;
-typedef std::function<void(uint8_t* address, uint8_t status)> comms_hal_sent_data;
+typedef std::function<void(uint8_t* address, uint8_t* data, uint8_t len, int rssi, bool broadcast)> comms_hal_rcvd_data;
+typedef std::function<void(uint8_t* address, uint8_t status)>                                       comms_hal_sent_data;
 
 typedef enum
 {
@@ -56,10 +53,9 @@ typedef struct
     uint8_t  source_address[6];
     uint8_t  broadcast_address[6];
     uint16_t sequence_control;
-
-    uint8_t category_code;
-    uint8_t organization_identifier[3];  // 0x18fe34
-    uint8_t random_values[4];
+    uint8_t  category_code;
+    uint8_t  organization_identifier[3];  // 0x18fe34
+    uint8_t  random_values[4];
     struct
     {
         uint8_t element_id;                  // 0xdd
@@ -87,36 +83,6 @@ typedef struct
     int8_t  rssi;                               /* RSSI */
 } comms_rx_queue_item_t;
 
-typedef struct
-{
-    uint8_t mac[ESP_NOW_ETH_ALEN];
-    time_t  last_msg;
-    bool    active;
-} peer_t;
-typedef struct
-{
-    uint8_t peer_number;
-    peer_t  peer[ESP_NOW_MAX_TOTAL_PEER_NUM];
-} peer_list_t;
-
-class PeerListClass
-{
-protected:
-    peer_list_t peer_list;
-
-public:
-    bool     peer_exists(const uint8_t* mac);
-    peer_t*  get_peer(const uint8_t* mac);
-    bool     update_peer_use(const uint8_t* mac);
-    bool     delete_peer(const uint8_t* mac);
-    uint8_t* delete_peer();
-    bool     add_peer(const uint8_t* mac);
-    uint8_t  get_peer_number();
-#    ifdef UNIT_TEST
-    void dump_peer_list();
-#    endif
-};
-
 class QuickEspNow
 {
 public:
@@ -141,7 +107,7 @@ protected:
                                          // peerType_t _ownPeerType; // @brief Stores peer type, node or gateway
 
     wifi_interface_t wifi_if;
-    PeerListClass    peer_list;
+    peer_list_t      peer_list;
     TaskHandle_t     espnowTxTask;
     TaskHandle_t     espnowRxTask;
 
@@ -185,8 +151,6 @@ protected:
 };
 
 QuickEspNow quickEspNow;
-
-constexpr auto PEERLIST_TAG = "PEERLIST";
 
 bool QuickEspNow::begin(uint8_t channel, uint32_t wifi_interface, bool synchronousSend)
 {
@@ -464,12 +428,15 @@ bool QuickEspNow::addPeer(const uint8_t* peer_addr)
     esp_now_peer_info_t peer;
     esp_err_t           error = ESP_OK;
 
-    if (peer_list.get_peer_number() >= ESP_NOW_MAX_TOTAL_PEER_NUM)
+    if (peer_list.is_full())
     {
         DEBUG_VERBOSE(QESPNOW_TAG, "Peer list full. Deleting older");
-        if (uint8_t* deleted_mac = peer_list.delete_peer())
+        int32_t oldest_peer = peer_list.find_oldest_peer();
+        if (oldest_peer >= 0)
         {
-            esp_now_del_peer(deleted_mac);
+            uint8_t* mac_of_oldest_peer = peer_list.get_mac(oldest_peer);
+            esp_now_del_peer(mac_of_oldest_peer);
+            peer_list.delete_peer(oldest_peer);
         }
         else
         {
@@ -478,15 +445,15 @@ bool QuickEspNow::addPeer(const uint8_t* peer_addr)
         }
     }
 
-    if (peer_list.peer_exists(peer_addr))
+    int32_t peer_index = peer_list.find_active_peer(peer_addr);
+    if (peer_index >= 0)
     {
         DEBUG_VERBOSE(QESPNOW_TAG, "Peer already exists");
-
         error = esp_now_get_peer(peer_addr, &peer);
         if (error == ESP_ERR_ESPNOW_NOT_FOUND)
         {
-            peer_list.delete_peer(peer_addr);
-            DEBUG_ERROR(QESPNOW_TAG, "Peer not found. Adding again");
+            peer_list.delete_peer(peer_index);
+            DEBUG_ERROR(QESPNOW_TAG, "Peer not found in ESPNOW, adding again");
             return addPeer(peer_addr);
         }
         else if (error != ESP_OK)
@@ -507,6 +474,7 @@ bool QuickEspNow::addPeer(const uint8_t* peer_addr)
         return true;
     }
 
+    // Setup ESPNOW peer
     memcpy(peer.peer_addr, peer_addr, ESP_NOW_ETH_ALEN);
     uint8_t            ch;
     wifi_second_chan_t secondCh;
@@ -514,7 +482,8 @@ bool QuickEspNow::addPeer(const uint8_t* peer_addr)
     peer.channel = ch;
     peer.ifidx   = wifi_if;
     peer.encrypt = false;
-    error        = esp_now_add_peer(&peer);
+
+    error = esp_now_add_peer(&peer);
     if (!error)
     {
         DEBUG_DBG(QESPNOW_TAG, "Peer added");
@@ -591,7 +560,7 @@ void QuickEspNow::espnowRxHandle()
 
 void QuickEspNow::espnowRxTask_cb(void* param)
 {
-    for (;;)
+    while (true)
     {
         quickEspNow.espnowRxHandle();
     }
@@ -641,126 +610,6 @@ void QuickEspNow::tx_cb(const esp_now_send_info_t* tx_info, esp_now_send_status_
     }
 }
 
-uint8_t PeerListClass::get_peer_number() { return peer_list.peer_number; }
-
-bool PeerListClass::peer_exists(const uint8_t* mac)
-{
-    for (int i = 0; i < ESP_NOW_MAX_TOTAL_PEER_NUM; i++)
-    {
-        if (memcmp(peer_list.peer[i].mac, mac, ESP_NOW_ETH_ALEN) == 0)
-        {
-            if (peer_list.peer[i].active)
-            {
-                peer_list.peer[i].last_msg = millis();
-                DEBUG_VERBOSE(PEERLIST_TAG, "Peer " MACSTR " found. Updated last_msg", MAC2STR(mac));
-                return true;
-            }
-        }
-    }
-    return false;
-}
-
-peer_t* PeerListClass::get_peer(const uint8_t* mac)
-{
-    for (int i = 0; i < ESP_NOW_MAX_TOTAL_PEER_NUM; i++)
-    {
-        if (memcmp(peer_list.peer[i].mac, mac, ESP_NOW_ETH_ALEN) == 0)
-        {
-            if (peer_list.peer[i].active)
-            {
-                DEBUG_VERBOSE(PEERLIST_TAG, "Peer " MACSTR " found", MAC2STR(mac));
-                return &(peer_list.peer[i]);
-            }
-        }
-    }
-    return NULL;
-}
-
-bool PeerListClass::update_peer_use(const uint8_t* mac)
-{
-    peer_t* peer = get_peer(mac);
-    if (peer)
-    {
-        peer->last_msg = millis();
-        return true;
-    }
-    return false;
-}
-
-bool PeerListClass::add_peer(const uint8_t* mac)
-{
-    if (peer_exists(mac))
-    {
-        DEBUG_VERBOSE(PEERLIST_TAG, "Peer " MACSTR " already exists", MAC2STR(mac));
-        return false;
-    }
-    if (peer_list.peer_number >= ESP_NOW_MAX_TOTAL_PEER_NUM)
-    {
-        // DEBUG_VERBOSE (PEERLIST_TAG, "Peer list full. Deleting older");
-#    ifndef UNIT_TEST
-        DEBUG_ERROR(PEERLIST_TAG, "Should never happen");
-#    endif
-        return false;
-        // delete_peer (); // Delete should happen in higher level
-    }
-
-    for (int i = 0; i < ESP_NOW_MAX_TOTAL_PEER_NUM; i++)
-    {
-        if (!peer_list.peer[i].active)
-        {
-            memcpy(peer_list.peer[i].mac, mac, ESP_NOW_ETH_ALEN);
-            peer_list.peer[i].active   = true;
-            peer_list.peer[i].last_msg = millis();
-            peer_list.peer_number++;
-            DEBUG_VERBOSE(PEERLIST_TAG, "Peer " MACSTR " added. Total peers = %d", MAC2STR(mac), peer_list.peer_number);
-            return true;
-        }
-    }
-
-    return false;
-}
-
-bool PeerListClass::delete_peer(const uint8_t* mac)
-{
-    peer_t* peer = get_peer(mac);
-    if (peer)
-    {
-        peer->active = false;
-        peer_list.peer_number--;
-        DEBUG_VERBOSE(PEERLIST_TAG, "Peer " MACSTR " deleted. Total peers = %d", MAC2STR(mac), peer_list.peer_number);
-        return true;
-    }
-    return false;
-}
-
-// Delete peer with older message
-uint8_t* PeerListClass::delete_peer()
-{
-    uint32_t oldest_msg   = 0;
-    int      oldest_index = -1;
-    uint8_t* mac          = NULL;
-    for (int i = 0; i < ESP_NOW_MAX_TOTAL_PEER_NUM; i++)
-    {
-        if (peer_list.peer[i].active)
-        {
-            if (peer_list.peer[i].last_msg < oldest_msg || oldest_msg == 0)
-            {
-                oldest_msg   = peer_list.peer[i].last_msg;
-                oldest_index = i;
-                DEBUG_VERBOSE(PEERLIST_TAG, "Peer " MACSTR " is %d ms old. Deleting", MAC2STR(peer_list.peer[i].mac), oldest_msg);
-            }
-        }
-    }
-    if (oldest_index != -1)
-    {
-        peer_list.peer[oldest_index].active = false;
-        peer_list.peer_number--;
-        mac = peer_list.peer[oldest_index].mac;
-        DEBUG_VERBOSE(PEERLIST_TAG, "Peer " MACSTR " deleted. Last message %d ms ago. Total peers = %d", MAC2STR(mac), millis() - peer_list.peer[oldest_index].last_msg, peer_list.peer_number);
-    }
-    return mac;
-}
-
 bool QuickEspNow::setWiFiBandwidth(wifi_interface_t iface, wifi_bandwidth_t bw)
 {
     esp_err_t err_ok;
@@ -770,20 +619,6 @@ bool QuickEspNow::setWiFiBandwidth(wifi_interface_t iface, wifi_bandwidth_t bw)
     }
     return !err_ok;
 }
-
-#    ifdef UNIT_TEST
-void PeerListClass::dump_peer_list()
-{
-    Serial.printf("Number of peers %d\n", peer_list.peer_number);
-    for (int i = 0; i < ESP_NOW_MAX_TOTAL_PEER_NUM; i++)
-    {
-        if (peer_list.peer[i].active)
-        {
-            Serial.printf("Peer " MACSTR " is %d ms old\n", MAC2STR(peer_list.peer[i].mac), millis() - peer_list.peer[i].last_msg);
-        }
-    }
-}
-#    endif  // UNIT_TEST
 
 namespace ncore
 {

@@ -9,12 +9,6 @@
 // ----------------------------------------------------------------------------------------
 static const char* RINGBUFFER_DEBUG_TAG = "RINGBUFFER";
 
-#    define DEBUG_ERROR(...)
-#    define DEBUG_INFO(...)
-#    define DEBUG_VERBOSE(...)
-#    define DEBUG_WARN(...)
-#    define DEBUG_DBG(...)
-
 /**
  * @brief Ring buffer class. Used to implement message buffer
  *
