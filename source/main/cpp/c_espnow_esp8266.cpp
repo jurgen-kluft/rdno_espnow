@@ -1,5 +1,6 @@
-
 #if defined(TARGET_ARDUINO) && defined(TARGET_ESP8266)
+
+#    include "rdno_core/c_debug.h"
 
 #    include "Arduino.h"
 #    include <espnow.h>
@@ -7,7 +8,7 @@
 
 // ----------------------------------------------------------------------------------------
 // ----------------------------------------------------------------------------------------
-static const char* RINGBUFFER_DEBUG_TAG = "RINGBUFFER";
+DEBUG_TAG(RINGBUFFER_DEBUG_TAG, "RINGBUFFER");
 
 /**
  * @brief Ring buffer class. Used to implement message buffer
@@ -158,13 +159,7 @@ typedef enum
     COMMS_SEND_CONFIRM_ERROR        = -5, /* Data was not sent due to confirmation error (only for synchronous send) */
 } comms_send_error_t;
 
-constexpr auto QESPNOW_TAG = "QESPNOW";
-
-#    define DEBUG_ERROR(...)
-#    define DEBUG_INFO(...)
-#    define DEBUG_VERBOSE(...)
-#    define DEBUG_WARN(...)
-#    define DEBUG_DBG(...)
+DEBUG_TAG(QESPNOW_TAG, "QESPNOW");
 
 static const uint8_t ESPNOW_BROADCAST_ADDRESS[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 static const uint8_t MIN_WIFI_CHANNEL           = 0;
@@ -229,6 +224,65 @@ typedef struct
     int8_t  rssi;                               /* RSSI */
 } comms_rx_queue_item_t;
 
+// #    define MEASURE_THROUGHPUT
+
+#    ifdef MEASURE_THROUGHPUT
+static const time_t MEAS_TP_EVERY_MS = 10000;  // @brief Measurement time period
+
+struct QuickEspNowDataThroughput
+{
+    void addBytesDropped(uint64_t bytes) { txDataDropped += bytes; }
+    void addBytesSent(uint64_t bytes) { txDataSent += bytes; }
+    void addBytesReceived(uint64_t bytes) { rxDataReceived += bytes; }
+
+    void calculate(uint64_t now)
+    {
+        uint64_t measTime = (now - lastDataTPMeas);
+        lastDataTPMeas    = now;
+
+        if (txDataSent > 0)
+        {
+            txDataTP           = txDataSent * 1024 / measTime;
+            txDroppedDataRatio = (float)txDataDropped / (float)txDataSent;
+            txDataSent         = 0;
+        }
+        else
+        {
+            txDataTP           = 0;
+            txDroppedDataRatio = 0;
+        }
+
+        if (rxDataReceived > 0)
+        {
+            rxDataTP       = rxDataReceived * 1024 / measTime;
+            rxDataReceived = 0;
+        }
+        else
+        {
+            rxDataTP = 0;
+        }
+        txDataDropped = 0;
+    }
+
+private:
+    uint64_t txDataSent         = 0;  // Total transmitted data in bytes
+    uint64_t rxDataReceived     = 0;  // Total received data in bytes
+    uint64_t txDataDropped      = 0;  // Total dropped transmitted data in bytes
+    uint64_t lastDataTPMeas     = 0;  // Time of last throughput measurement
+    float    txDataTP           = 0;  // in Kbps
+    float    rxDataTP           = 0;  // in Kbps
+    float    txDroppedDataRatio = 0;  // in %
+};
+#    else
+struct QuickEspNowDataThroughput
+{
+    void addBytesDropped(uint64_t) {}
+    void addBytesSent(uint64_t) {}
+    void addBytesReceived(uint64_t) {}
+    void calculate(uint64_t) {}
+};
+#    endif  // MEASURE_THROUGHPUT
+
 class QuickEspNow
 {
 public:
@@ -260,19 +314,6 @@ protected:
     uint8_t  wifi_if;
     ETSTimer espnowTxTask;
     ETSTimer espnowRxTask;
-#    ifdef MEASURE_THROUGHPUT
-    ETSTimer      dataTPTimer;
-    unsigned long txDataSent         = 0;
-    unsigned long rxDataReceived     = 0;
-    unsigned long txDataDropped      = 0;
-    time_t        lastDataTPMeas     = 0;
-    float         txDataTP           = 0;
-    float         rxDataTP           = 0;
-    float         txDroppedDataRatio = 0;
-
-    static void tp_timer_cb(void* param);
-    void        calculateDataTP();
-#    endif  // MEASURE_THROUGHPUT
 
     bool    readyToSend            = true;
     bool    waitingForConfirmation = false;
@@ -280,6 +321,8 @@ protected:
     bool    followWiFiChannel      = false;
     int     queueSize              = ESPNOW_QUEUE_SIZE;
     uint8_t sentStatus;
+
+    QuickEspNowDataThroughput dataThroughput;
 
     RingBuffer<comms_tx_queue_item_t> tx_queue;
     RingBuffer<comms_rx_queue_item_t> rx_queue;
@@ -367,7 +410,7 @@ bool QuickEspNow::begin(uint8_t channel, uint32_t wifi_interface, bool synchrono
     {
         setChannel(channel);
     }
-    DEBUG_INFO(QESPNOW_TAG, "Starting ESP-NOW in in channel %u interface %s", channel, wifi_if == WIFI_IF_STA ? "STA" : "AP");
+    DEBUG_INFO(QESPNOW_TAG, "Starting ESP-NOW using channel %u, interface %s", channel, wifi_if == WIFI_IF_STA ? "STA" : "AP");
 
     this->channel = channel;
     initComms();
@@ -377,7 +420,7 @@ bool QuickEspNow::begin(uint8_t channel, uint32_t wifi_interface, bool synchrono
 
 void QuickEspNow::stop()
 {
-    DEBUG_INFO(QESPNOW_TAG, "-------------> ESP-NOW STOP");
+    DEBUG_INFO(QESPNOW_TAG, "Stop ESP-NOW");
     os_timer_disarm(&espnowTxTask);
     os_timer_disarm(&espnowRxTask);
     esp_now_unregister_recv_cb();
