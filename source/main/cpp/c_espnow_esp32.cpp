@@ -5,13 +5,13 @@
 
 #    include "Arduino.h"
 
-#    include <esp_now.h>
-#    include <esp_wifi.h>
+#    include "esp_now.h"
+#    include "esp_wifi.h"
 
-#    include <freertos/FreeRTOS.h>
-#    include <freertos/semphr.h>
-#    include <freertos/queue.h>
-#    include <freertos/task.h>
+#    include "freertos/FreeRTOS.h"
+#    include "freertos/semphr.h"
+#    include "freertos/queue.h"
+#    include "freertos/task.h"
 
 #    include "rdno_espnow/private/c_peer_list.h"
 
@@ -180,7 +180,7 @@ protected:
     // uint8_t channel;
     bool followWiFiChannel = false;
 
-    void        initComms();
+    bool        initialize();
     bool        addPeer(const uint8_t* peer_addr);
     static void espnowTxTask_cb(void* param);
     int32_t     sendEspNowMessage(comms_tx_queue_item_t* message);
@@ -231,10 +231,9 @@ bool QuickEspNow::begin(uint8_t channel, uint32_t wifi_interface, bool synchrono
     setChannel(channel, ch2);
 
     DEBUG_INFO(QESPNOW_TAG, ARDUHAL_LOG_COLOR(ARDUHAL_LOG_COLOR_RED) "Starting ESP-NOW in in channel %u interface %s", channel, wifi_if == WIFI_IF_STA ? "STA" : "AP");
-
     this->channel = channel;
-    initComms();
-    return true;
+    
+    return initialize();
 }
 
 void QuickEspNow::stop()
@@ -497,13 +496,14 @@ bool QuickEspNow::addPeer(const uint8_t* peer_addr)
     return error == ESP_OK;
 }
 
-void QuickEspNow::initComms()
+bool QuickEspNow::initialize()
 {
     if (esp_now_init())
     {
         DEBUG_ERROR(QESPNOW_TAG, "Failed to init ESP-NOW");
         ESP.restart();
         delay(1);
+        return false;
     }
 
     esp_now_register_recv_cb(rx_cb);
@@ -520,6 +520,8 @@ void QuickEspNow::initComms()
 
     rx_queue = xQueueCreate(queueSize, sizeof(comms_rx_queue_item_t));
     xTaskCreateUniversal(espnowRxTask_cb, "receive_handle", 4 * 1024, NULL, 1, &espnowRxTask, CONFIG_ARDUINO_RUNNING_CORE);
+
+    return true;
 }
 
 void QuickEspNow::espnowTxTask_cb(void* param)

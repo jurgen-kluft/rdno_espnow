@@ -3,8 +3,8 @@
 #    include "rdno_core/c_debug.h"
 
 #    include "Arduino.h"
-#    include <espnow.h>
-#    include <ESP8266WiFi.h>
+#    include "espnow.h"
+#    include "ESP8266WiFi.h"
 
 // ----------------------------------------------------------------------------------------
 // ----------------------------------------------------------------------------------------
@@ -170,10 +170,6 @@ static const uint8_t ESPNOW_ADDR_LEN            = 6;    // Address length
 static const uint8_t ESPNOW_QUEUE_SIZE          = 4;    // Queue size
 static const int     TASK_PERIOD                = 10;   // Rx and Tx tasks period
 
-#    ifdef MEASURE_THROUGHPUT
-static const time_t MEAS_TP_EVERY_MS = 10000;  // Measurement time period
-#    endif                                     // MEASURE_THROUGHPUT
-
 #    define ESP_NOW_ETH_ALEN     6
 #    define ESP_NOW_MAX_DATA_LEN 250
 #    define WIFI_IF_STA          STATION_IF
@@ -327,7 +323,7 @@ protected:
     RingBuffer<comms_tx_queue_item_t> tx_queue;
     RingBuffer<comms_rx_queue_item_t> rx_queue;
 
-    void        initComms();
+    bool        initialize();
     static void espnowTxTask_cb(void* param);
     static void espnowRxTask_cb(void* param);
     int32_t     sendEspNowMessage(comms_tx_queue_item_t* message);
@@ -411,10 +407,39 @@ bool QuickEspNow::begin(uint8_t channel, uint32_t wifi_interface, bool synchrono
         setChannel(channel);
     }
     DEBUG_INFO(QESPNOW_TAG, "Starting ESP-NOW using channel %u, interface %s", channel, wifi_if == WIFI_IF_STA ? "STA" : "AP");
-
     this->channel = channel;
-    initComms();
+ 
     // addPeer (ESPNOW_BROADCAST_ADDRESS); // Not needed ?
+
+    return initialize();
+}
+
+bool QuickEspNow::initialize()
+{
+    if (esp_now_init())
+    {
+        DEBUG_ERROR(QESPNOW_TAG, "Failed to init ESP-NOW");
+        return false;
+    }
+
+    if (wifi_if == WIFI_IF_STA)
+    {
+        esp_now_set_self_role(ESP_NOW_ROLE_SLAVE);
+    }
+    else
+    {
+        esp_now_set_self_role(ESP_NOW_ROLE_CONTROLLER);
+    }
+
+    esp_now_register_recv_cb(rx_cb);
+    esp_now_register_send_cb(tx_cb);
+
+    os_timer_setfn(&espnowTxTask, espnowTxTask_cb, NULL);
+    os_timer_arm(&espnowTxTask, TASK_PERIOD, true);
+
+    os_timer_setfn(&espnowRxTask, espnowRxTask_cb, NULL);
+    os_timer_arm(&espnowRxTask, TASK_PERIOD, true);
+
     return true;
 }
 
@@ -467,13 +492,6 @@ comms_send_error_t QuickEspNow::send(const uint8_t* dstAddress, const uint8_t* p
 
     if (tx_queue.size() >= ESPNOW_QUEUE_SIZE)
     {
-#    ifdef MEASURE_THROUGHPUT
-        // comms_tx_queue_item_t* tempBuffer;
-        // tempBuffer = tx_queue.front ();
-        // txDataDropped += tempBuffer->payload_len;
-#    endif  // MEASURE_THROUGHPUT
-            // tx_queue.pop ();
-            // DEBUG_DBG (QESPNOW_TAG, "Message dropped");
         return COMMS_SEND_QUEUE_FULL_ERROR;
     }
 
@@ -483,9 +501,7 @@ comms_send_error_t QuickEspNow::send(const uint8_t* dstAddress, const uint8_t* p
 
     if (tx_queue.push(&message))
     {
-#    ifdef MEASURE_THROUGHPUT
-        txDataSent += message.payload_len;
-#    endif  // MEASURE_THROUGHPUT
+        dataThroughput.addBytesSent(message.payload_len);
         DEBUG_DBG(QESPNOW_TAG, "--------- %d Comms messages queued. Len: %d", tx_queue.size(), payload_len);
         DEBUG_VERBOSE(QESPNOW_TAG, "--------- Ready to send is %s", readyToSend ? "true" : "false");
         if (synchronousSend)
@@ -509,46 +525,6 @@ comms_send_error_t QuickEspNow::send(const uint8_t* dstAddress, const uint8_t* p
 }
 
 void QuickEspNow::onDataRcvd(comms_hal_rcvd_data dataRcvd) { this->dataRcvd = dataRcvd; }
-
-#    ifdef MEASURE_THROUGHPUT
-void QuickEspNow::calculateDataTP()
-{
-    time_t measTime = (millis() - lastDataTPMeas);
-    lastDataTPMeas  = millis();
-
-    if (txDataSent > 0)
-    {
-        txDataTP = txDataSent * 1000 / measTime;
-        // DEBUG_WARN(QESPNOW_TAG, "Meas time: %d, Data sent: %d, Data TP: %f", measTime, txDataSent, txDataTP);
-        txDroppedDataRatio = (float)txDataDropped / (float)txDataSent;
-        // DEBUG_WARN(QESPNOW_TAG, "Data dropped: %d, Drop ratio: %f", txDataDropped, txDroppedDataRatio);
-        txDataSent = 0;
-    }
-    else
-    {
-        txDataTP           = 0;
-        txDroppedDataRatio = 0;
-    }
-    if (rxDataReceived > 0)
-    {
-        rxDataTP = rxDataReceived * 1000 / measTime;
-        // DEBUG_WARN(QESPNOW_TAG, "Meas time: %d, Data received: %d, Data TP: %f", measTime, rxDataReceived, rxDataTP);
-        rxDataReceived = 0;
-    }
-    else
-    {
-        rxDataTP = 0;
-    }
-    txDataDropped = 0;
-}
-
-void QuickEspNow::tp_timer_cb(void* param)
-{
-    quickEspNow.calculateDataTP();
-    DEBUG_WARN(QESPNOW_TAG, "TxData TP: %.3f kbps, Drop Ratio: %.2f %%, RxDataTP: %.3f kbps", quickEspNow.txDataTP * 8 / 1000, quickEspNow.txDroppedDataRatio * 100, quickEspNow.rxDataTP * 8 / 1000);
-}
-#    endif  // MEASURE_THROUGHPUT
-
 void QuickEspNow::onDataSent(comms_hal_sent_data sentResult) { this->sentResult = sentResult; }
 
 int32_t QuickEspNow::sendEspNowMessage(comms_tx_queue_item_t* message)
@@ -625,39 +601,6 @@ void QuickEspNow::enableTransmit(bool enable)
     }
 }
 
-void QuickEspNow::initComms()
-{
-    if (esp_now_init())
-    {
-        DEBUG_ERROR(QESPNOW_TAG, "Failed to init ESP-NOW");
-        ESP.restart();
-        delay(1);
-    }
-
-    if (wifi_if == WIFI_IF_STA)
-    {
-        esp_now_set_self_role(ESP_NOW_ROLE_SLAVE);
-    }
-    else
-    {
-        esp_now_set_self_role(ESP_NOW_ROLE_CONTROLLER);
-    }
-
-    esp_now_register_recv_cb(rx_cb);
-    esp_now_register_send_cb(tx_cb);
-
-    os_timer_setfn(&espnowTxTask, espnowTxTask_cb, NULL);
-    os_timer_arm(&espnowTxTask, TASK_PERIOD, true);
-
-    os_timer_setfn(&espnowRxTask, espnowRxTask_cb, NULL);
-    os_timer_arm(&espnowRxTask, TASK_PERIOD, true);
-
-#    ifdef MEASURE_THROUGHPUT
-    os_timer_setfn(&dataTPTimer, tp_timer_cb, NULL);
-    os_timer_arm(&dataTPTimer, MEAS_TP_EVERY_MS, true);
-#    endif  // MEASURE_THROUGHPUT
-}
-
 void QuickEspNow::espnowTxTask_cb(void* param) { quickEspNow.espnowTxHandle(); }
 
 void QuickEspNow::rx_cb(uint8_t* mac_addr, uint8_t* data, uint8_t len)
@@ -682,9 +625,7 @@ void QuickEspNow::rx_cb(uint8_t* mac_addr, uint8_t* data, uint8_t len)
         DEBUG_DBG(QESPNOW_TAG, "Rx Message dropped");
     }
 
-#    ifdef MEASURE_THROUGHPUT
-    quickEspNow.rxDataReceived += len;
-#    endif  // MEASURE_THROUGHPUT
+    quickEspNow.dataThroughput.addBytesReceived(len);
 
     if (quickEspNow.rx_queue.push(&message))
     {
