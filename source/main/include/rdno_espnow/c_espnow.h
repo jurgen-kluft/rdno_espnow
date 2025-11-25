@@ -20,7 +20,7 @@ namespace ncore
         bool deinit(void);
 
         /**
-         * @brief Get Mac 
+         * @brief Get Mac
          * @param[in] mac Pointer to a buffer to contain a six-byte MAC address.
          */
         bool get_mac(u8 *mac);
@@ -50,26 +50,27 @@ namespace ncore
          * @param[in] timeout_ms Timeout in milliseconds to wait for confirmation.
          */
         bool send_sync(const u8 *target, const u8 *data, const u8 data_len, const u32 timeout_ms);
-    }
+    }  // namespace nespnow
 
     namespace nqespnow
     {
+        typedef std::function<void(u8 const *address, u8 *data, u8 len, s32 rssi, bool broadcast)> rcvd_data_cb;
+        typedef std::function<void(u8 const *address, u8 status)>                                  sent_data_cb;
+
         /**
          * @brief Initialize ESP-NOW.
          */
-        bool init(bool initialize_wifi);
+        bool init(bool initialize_wifi, bool synchronous_send);
+
+        /*
+         * @brief Start ESP-NOW with callbacks.
+         */
+        void start(rcvd_data_cb rcvd_cb, sent_data_cb sent_cb);
 
         /**
          * @brief Deinitialize ESP-NOW.
          */
         bool deinit(void);
-
-        /**
-         * @brief Add ESP-NOW peer.
-         *
-         * @param[in] mac Pointer to a buffer containing a six-byte MAC address.
-         */
-        bool add_peer(const u8 *mac);
 
         /**
          * @brief Send ESP-NOW data.
@@ -80,7 +81,7 @@ namespace ncore
          */
         bool send(const u8 *target, const u8 *data, const u8 data_len);
 
-    }  // namespace nespnow
+    }  // namespace nqespnow
 }  // namespace ncore
 
 #endif  // __RDNO_ESPNOW_NETWORK_H__
