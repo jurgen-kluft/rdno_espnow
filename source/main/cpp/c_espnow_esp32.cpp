@@ -1,7 +1,7 @@
 
 #if defined(TARGET_ARDUINO) && defined(TARGET_ESP32)
 
-#    include "rdno_core/c_debug.h"
+#    include "rcore/c_debug.h"
 
 #    include "Arduino.h"
 
@@ -13,8 +13,8 @@
 #    include "freertos/queue.h"
 #    include "freertos/task.h"
 
-#    include "rdno_espnow/private/c_peer_list.h"
-#    include "rdno_espnow/c_espnow.h"
+#    include "respnow/private/c_peer_list.h"
+#    include "respnow/c_espnow.h"
 
 // ----------------------------------------------------------------------------------------
 // ----------------------------------------------------------------------------------------

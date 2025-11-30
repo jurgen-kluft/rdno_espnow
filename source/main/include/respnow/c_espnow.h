@@ -1,9 +1,12 @@
-#ifndef __RDNO_ESPNOW_NETWORK_H__
-#define __RDNO_ESPNOW_NETWORK_H__
-#include "rdno_core/c_target.h"
+#ifndef __rESPNOW_NETWORK_H__
+#define __rESPNOW_NETWORK_H__
+#include "rcore/c_target.h"
 #ifdef USE_PRAGMA_ONCE
 #    pragma once
 #endif
+
+// for std::function
+#include <functional>
 
 namespace ncore
 {
@@ -12,7 +15,7 @@ namespace ncore
         /**
          * @brief Initialize ESP-NOW in its most basic form.
          */
-        bool init(bool initialize_wifi = true);
+        bool init();
 
         /**
          * @brief Deinitialize ESP-NOW.
@@ -60,7 +63,7 @@ namespace ncore
         /**
          * @brief Initialize ESP-NOW.
          */
-        bool init(bool initialize_wifi, bool synchronous_send);
+        bool init(bool synchronous_send);
 
         /*
          * @brief Start ESP-NOW with callbacks.
@@ -84,4 +87,4 @@ namespace ncore
     }  // namespace nqespnow
 }  // namespace ncore
 
-#endif  // __RDNO_ESPNOW_NETWORK_H__
+#endif  // __rESPNOW_NETWORK_H__

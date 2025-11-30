@@ -1,7 +1,7 @@
 #if defined(TARGET_ARDUINO) && defined(TARGET_ESP8266)
 
-#    include "rdno_core/c_debug.h"
-#    include "rdno_espnow/c_espnow.h"
+#    include "rcore/c_debug.h"
+#    include "respnow/c_espnow.h"
 
 #    include "Arduino.h"
 #    include "espnow.h"

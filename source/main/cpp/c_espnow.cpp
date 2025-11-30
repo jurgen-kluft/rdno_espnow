@@ -1,10 +1,10 @@
 #if defined(TARGET_ARDUINO)
 
-#    include "rdno_core/c_debug.h"
-#    include "rdno_core/c_timer.h"
+#    include "rcore/c_debug.h"
+#    include "rcore/c_timer.h"
 
 #    include "WiFi.h"
-#    include "rdno_espnow/c_espnow.h"
+#    include "respnow/c_espnow.h"
 
 #    ifdef TARGET_ESP8266
 #        include "espnow.h"
@@ -39,11 +39,11 @@ namespace ncore
         }
 #    endif
 
-        bool init(bool initialize_wifi)
+        bool init()
         {
-            // Set device as a Wi-Fi Station
-            WiFi.mode(WIFI_STA);
-            WiFi.disconnect();
+            // // Set device as a Wi-Fi Station
+            // WiFi.mode(WIFI_STA);
+            // WiFi.disconnect();
 
             if (esp_now_init() == ESP_OK)
             {
