@@ -1,5 +1,5 @@
-#ifndef __rESPNOW_PEER_LIST_H__
-#define __rESPNOW_PEER_LIST_H__
+#ifndef __ARDUINO_ESPNOW_PEER_LIST_H__
+#define __ARDUINO_ESPNOW_PEER_LIST_H__
 #include "rcore/c_target.h"
 #ifdef USE_PRAGMA_ONCE
 #    pragma once
@@ -52,4 +52,4 @@ namespace ncore
     };
 }  // namespace ncore
 
-#endif  // __rESPNOW_PEER_LIST_H__
+#endif  // __ARDUINO_ESPNOW_PEER_LIST_H__

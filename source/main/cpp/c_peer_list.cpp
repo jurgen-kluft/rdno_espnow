@@ -128,8 +128,7 @@ namespace ncore
     bool peer_list_t::is_active(i32 index) const { return (m_active[index >> 3] & (1 << (index & 7))) != 0; }
     void peer_list_t::set_active(i32 index, bool active) { m_active[index >> 3] = (m_active[index >> 3] & ~(1 << (index & 7))) | ((active ? 1 : 0) << (index & 7)); }
 
-#define UNIT_TEST
-#    ifdef UNIT_TEST
+#    ifdef TARGET_TEST
     void peer_list_t::dump_peer_list()
     {
         nlog::printf("Number of peers %d\n", va_t(m_size));

@@ -1,5 +1,5 @@
-#ifndef __rESPNOW_NETWORK_H__
-#define __rESPNOW_NETWORK_H__
+#ifndef __ARDUINO_ESPNOW_NETWORK_H__
+#define __ARDUINO_ESPNOW_NETWORK_H__
 #include "rcore/c_target.h"
 #ifdef USE_PRAGMA_ONCE
 #    pragma once
@@ -87,4 +87,4 @@ namespace ncore
     }  // namespace nqespnow
 }  // namespace ncore
 
-#endif  // __rESPNOW_NETWORK_H__
+#endif  // __ARDUINO_ESPNOW_NETWORK_H__
