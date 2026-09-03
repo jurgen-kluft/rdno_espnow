@@ -1,14 +1,14 @@
 package respnow
 
 import (
-	denv "github.com/jurgen-kluft/ccode/denv"
+	denv "github.com/jurgen-kluft/go-ide/denv"
 	rcore "github.com/jurgen-kluft/rcore/package"
 	rwifi "github.com/jurgen-kluft/rwifi/package"
 )
 
 // respnow is a package for Arduino Esp32/Esp8266 projects.
 const (
-	repo_path = "github.com\\jurgen-kluft"
+	repo_path = "github.com/jurgen-kluft"
 	repo_name = "respnow"
 )
 
